@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 unzip android-tools-fsutils file
+          sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file
 
       # Download ROM using aria2
       - name: Download ROM with aria2
