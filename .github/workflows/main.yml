@@ -1,15 +1,15 @@
-name: Download Files with Aria2
+name: PORT
 
 on:
   workflow_dispatch:
     inputs:
-      download_url:
-        description: 'URL of the file to download'
+      rom_url:
+        description: 'URL of the recovery ROM (.zip) to download'
         required: true
         type: string
 
 jobs:
-  download:
+  process-rom:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,25 +17,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install aria2
-      - name: Install aria2
-        run: sudo apt-get update && sudo apt-get install -y aria2
-
-      # Download file using aria2
-      - name: Download file with aria2
+      # Install dependencies (aria2, unzip, simg2img, file)
+      - name: Install dependencies
         run: |
-          URL="${{ github.event.inputs.download_url || 'https://example.com/your-file-url' }}"
+          sudo apt-get update
+          sudo apt-get install -y aria2 unzip android-tools-fsutils file
+
+      # Download ROM using aria2
+      - name: Download ROM with aria2
+        run: |
+          URL="${{ github.event.inputs.rom_url || 'https://example.com/recovery-rom.zip' }}"
           FILENAME=$(basename "$URL")
           aria2c \
             --dir="${{ github.workspace }}" \
             --out="$FILENAME" \
-            --split=8 \
+            --split=5 \
             --max-concurrent-downloads=5 \
             --max-connection-per-server=5 \
             --min-split-size=5M \
             --allow-overwrite=true \
             "$URL"
 
-      # List downloaded files to verify
-      - name: List downloaded files
-        run: ls -lh ${{ github.workspace }}
+      # Unpack the downloaded zip file
+      - name: Unpack ROM zip
+        run: |
+          FILENAME=$(basename "${{ github.event.inputs.rom_url || 'https://example.com/recovery-rom.zip' }}")
+          unzip "${{ github.workspace }}/$FILENAME" -d "${{ github.workspace }}/rom_contents"
+
+      # Check for super.img and detect if it's a sparse image
+      - name: Check and process super.img
+        run: |
+          if [ -f "${{ github.workspace }}/rom_contents/super.img" ]; then
+            echo "Found super.img, checking if it's a sparse image..."
+            if file "${{ github.workspace }}/rom_contents/super.img" | grep -q "Android sparse image"; then
+              echo "super.img is a sparse image, converting to raw image..."
+              simg2img "${{ github.workspace }}/rom_contents/super.img" "${{ github.workspace }}/rom_contents/super_raw.img"
+              echo "super.img converted to super_raw.img"
+            else
+              echo "super.img is not a sparse image, copying as super_raw.img"
+              cp "${{ github.workspace }}/rom_contents/super.img" "${{ github.workspace }}/rom_contents/super_raw.img"
+            fi
+          else
+            echo "No super.img found in the ROM"
+          fi
+
+      # List extracted files to verify
+      - name: List extracted files
+        run: ls -lhR ${{ github.workspace }}/rom_contents
