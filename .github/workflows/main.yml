@@ -1,0 +1,42 @@
+name: Download Files with Aria2
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_url:
+        description: 'URL of the file to download'
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install aria2
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      # Download file using aria2
+      - name: Download file with aria2
+        run: |
+          aria2c \
+            --dir="${{ github.workspace }}" \
+            --out="downloaded_file" \
+            --split=5 \
+            --max-concurrent-downloads=5 \
+            --max-connection-per-server=5 \
+            --min-split-size=5M \
+            --allow-overwrite=true \
+            "${{ github.event.inputs.download_url || 'https://example.com/your-file-url' }}"
+
+      # List downloaded files to verify
+      - name: List downloaded files
+        run: ls -lh ${{ github.workspace }}
