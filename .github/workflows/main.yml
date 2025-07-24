@@ -17,11 +17,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file, e2fsprogs)
+      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file, e2fsprogs, erofs-utils)
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file e2fsprogs
+          # Install erofs-utils if available, or build from source
+          if ! sudo apt-get install -y erofs-utils; then
+            echo "erofs-utils not found in repository, building from source..."
+            sudo apt-get install -y git build-essential liblz4-dev
+            git clone https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git
+            cd erofs-utils
+            ./autogen.sh
+            ./configure
+            make
+            sudo make install
+            cd ..
+          fi
 
       # Download ROM using aria2
       - name: Download ROM with aria2
@@ -76,14 +88,18 @@ jobs:
       - name: Extract super_raw.img contents
         run: |
           if [ -f "${{ github.workspace }}/rom_contents/super_raw.img" ]; then
-            echo "Found super_raw.img, checking if it's an ext4 filesystem..."
+            echo "Found super_raw.img, checking filesystem type..."
             mkdir -p "${{ github.workspace }}/rom_contents/super_extracted"
-            if file "${{ github.workspace }}/rom_contents/super_raw.img" | grep -q "ext4 filesystem"; then
+            if file "${{ github.workspace }}/rom_contents/super_raw.img" | grep -q "EROFS filesystem"; then
+              echo "super_raw.img is an EROFS filesystem, extracting contents..."
+              fsck.erofs --extract="${{ github.workspace }}/rom_contents/super_extracted" "${{ github.workspace }}/rom_contents/super_raw.img"
+              echo "Extracted super_raw.img contents to rom_contents/super_extracted"
+            elif file "${{ github.workspace }}/rom_contents/super_raw.img" | grep -q "ext4 filesystem"; then
               echo "super_raw.img is an ext4 filesystem, extracting contents..."
               debugfs -R "rdump / ${{ github.workspace }}/rom_contents/super_extracted" "${{ github.workspace }}/rom_contents/super_raw.img"
               echo "Extracted super_raw.img contents to rom_contents/super_extracted"
             else
-              echo "super_raw.img is not an ext4 filesystem, skipping extraction"
+              echo "super_raw.img is not an EROFS or ext4 filesystem, skipping extraction"
             fi
           else
             echo "No super_raw.img found, skipping extraction"
