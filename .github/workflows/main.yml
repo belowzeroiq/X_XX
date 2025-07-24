@@ -17,11 +17,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file)
+      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file, e2fsprogs)
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file
+          sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file e2fsprogs
 
       # Download ROM using aria2
       - name: Download ROM with aria2
@@ -70,6 +70,23 @@ jobs:
             fi
           else
             echo "No single super.img or fragments found in the ROM"
+          fi
+
+      # Extract super_raw.img contents to a specific folder if it exists
+      - name: Extract super_raw.img contents
+        run: |
+          if [ -f "${{ github.workspace }}/rom_contents/super_raw.img" ]; then
+            echo "Found super_raw.img, checking if it's an ext4 filesystem..."
+            mkdir -p "${{ github.workspace }}/rom_contents/super_extracted"
+            if file "${{ github.workspace }}/rom_contents/super_raw.img" | grep -q "ext4 filesystem"; then
+              echo "super_raw.img is an ext4 filesystem, extracting contents..."
+              debugfs -R "rdump / ${{ github.workspace }}/rom_contents/super_extracted" "${{ github.workspace }}/rom_contents/super_raw.img"
+              echo "Extracted super_raw.img contents to rom_contents/super_extracted"
+            else
+              echo "super_raw.img is not an ext4 filesystem, skipping extraction"
+            fi
+          else
+            echo "No super_raw.img found, skipping extraction"
           fi
 
       # List extracted files to verify
