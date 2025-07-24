@@ -1,4 +1,4 @@
-name: PORT
+name: Process Recovery ROM
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install dependencies (aria2, unzip, simg2img, file)
+      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file)
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -44,6 +44,17 @@ jobs:
           FILENAME=$(basename "${{ github.event.inputs.rom_url || 'https://example.com/recovery-rom.zip' }}")
           unzip "${{ github.workspace }}/$FILENAME" -d "${{ github.workspace }}/rom_contents"
 
+      # Combine super.img fragments if they exist
+      - name: Combine super.img fragments
+        run: |
+          if ls "${{ github.workspace }}/rom_contents/images/super.img."* >/dev/null 2>&1; then
+            echo "Found super.img fragments, combining them..."
+            cat "${{ github.workspace }}/rom_contents/images/super.img."* > "${{ github.workspace }}/rom_contents/super.img"
+            echo "Combined fragments into super.img"
+          else
+            echo "No super.img fragments found in the ROM"
+          fi
+
       # Check for super.img and detect if it's a sparse image
       - name: Check and process super.img
         run: |
@@ -58,9 +69,9 @@ jobs:
               cp "${{ github.workspace }}/rom_contents/super.img" "${{ github.workspace }}/rom_contents/super_raw.img"
             fi
           else
-            echo "No super.img found in the ROM"
+            echo "No single super.img or fragments found in the ROM"
           fi
 
       # List extracted files to verify
       - name: List extracted files
-        run: ls -lhR ${{ github.workspace }}/rom_contents
+        run: ls -lhR "${{ github.workspace }}/rom_contents"
