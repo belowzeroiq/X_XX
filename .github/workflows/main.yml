@@ -17,15 +17,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file, e2fsprogs, erofs-utils)
+      # Install dependencies (aria2, unzip, android-sdk-libsparse-utils, file, e2fsprogs)
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file e2fsprogs
+          sudo apt-get install -y aria2 unzip android-sdk-libsparse-utils file e2fsprogs git build-essential liblz4-dev zlib1g-dev
           # Install erofs-utils if available, or build from source
           if ! sudo apt-get install -y erofs-utils; then
             echo "erofs-utils not found in repository, building from source..."
-            sudo apt-get install -y git build-essential liblz4-dev
             git clone https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git
             cd erofs-utils
             ./autogen.sh
@@ -34,6 +33,13 @@ jobs:
             sudo make install
             cd ..
           fi
+          # Build android-tools for lpunpack
+          echo "Building android-tools for lpunpack..."
+          git clone https://android.googlesource.com/platform/system/core
+          cd core/libsparse
+          gcc -o lpunpack -Iinclude lpunpack.c sparse.c sparse_crc32.c sparse_read.c -lz
+          sudo mv lpunpack /usr/local/bin/
+          cd ../..
 
       # Download ROM using aria2
       - name: Download ROM with aria2
@@ -99,7 +105,28 @@ jobs:
               debugfs -R "rdump / ${{ github.workspace }}/rom_contents/super_extracted" "${{ github.workspace }}/rom_contents/super_raw.img"
               echo "Extracted super_raw.img contents to rom_contents/super_extracted"
             else
-              echo "super_raw.img is not an EROFS or ext4 filesystem, skipping extraction"
+              echo "super_raw.img is not an EROFS or ext4 filesystem, attempting super partition extraction..."
+              mkdir -p "${{ github.workspace }}/rom_contents/super_extracted/partitions"
+              lpunpack "${{ github.workspace }}/rom_contents/super_raw.img" "${{ github.workspace }}/rom_contents/super_extracted/partitions"
+              echo "Extracted super partition images to rom_contents/super_extracted/partitions"
+              # Attempt to extract each partition if EROFS or ext4
+              for img in "${{ github.workspace }}/rom_contents/super_extracted/partitions"/*.img; do
+                if [ -f "$img" ]; then
+                  partition_name=$(basename "$img" .img)
+                  mkdir -p "${{ github.workspace }}/rom_contents/super_extracted/$partition_name"
+                  if file "$img" | grep -q "EROFS filesystem"; then
+                    echo "Extracting EROFS partition $partition_name..."
+                    fsck.erofs --extract="${{ github.workspace }}/rom_contents/super_extracted/$partition_name" "$img"
+                    echo "Extracted $partition_name to rom_contents/super_extracted/$partition_name"
+                  elif file "$img" | grep -q "ext4 filesystem"; then
+                    echo "Extracting ext4 partition $partition_name..."
+                    debugfs -R "rdump / ${{ github.workspace }}/rom_contents/super_extracted/$partition_name" "$img"
+                    echo "Extracted $partition_name to rom_contents/super_extracted/$partition_name"
+                  else
+                    echo "Partition $partition_name is not EROFS or ext4, skipping extraction"
+                  fi
+                fi
+              done
             fi
           else
             echo "No super_raw.img found, skipping extraction"
